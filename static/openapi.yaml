@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: CityFlow API
+  version: 0.1.0
+  description: >
+    OpenAPI specification for the CityFlow backend prototype. CityFlow is a Spring Boot service
+    backed by MySQL, Redis, and Kafka. All endpoints return the shared `Result` envelope;
+    authentication uses a JWT access token sent in the `authorization` header without a `Bearer`
+    prefix, with passive renewal via an HttpOnly refresh cookie.
+servers:
+  - url: http://localhost:8080
+    description: Local prototype
+paths:
+  /user/code:
+    post:
+      summary: Send a login verification code
+      security: []
+      parameters:
+        - { name: phone, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Code sent (stored in Redis)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /user/login:
+    post:
+      summary: Authenticate with phone + code; returns an access token in `data`
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, code]
+              properties:
+                phone: { type: string }
+                code: { type: string }
+      responses:
+        '200':
+          description: >
+            Access token returned in `data`; an HttpOnly refresh cookie is also set.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /user/info/{id}:
+    get:
+      summary: Fetch a user's public info
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: User info (or empty data on first view)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /shop/{id}:
+    get:
+      summary: Fetch a shop by id (Redis-first)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Shop wrapped in Result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /shop/of/type:
+    get:
+      summary: List shops by type (paginated)
+      parameters:
+        - { name: typeId, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: current, in: query, required: false, schema: { type: integer, default: 1 } }
+      responses:
+        '200':
+          description: Paginated shops
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /shop/of/name:
+    get:
+      summary: Search shops by name (paginated)
+      parameters:
+        - { name: name, in: query, required: false, schema: { type: string } }
+        - { name: current, in: query, required: false, schema: { type: integer, default: 1 } }
+      responses:
+        '200':
+          description: Paginated shops
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /voucher-order/seckill/{id}:
+    post:
+      summary: Claim a limited voucher (asynchronous; orderId returned immediately)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: >
+            On success, `data` is the generated orderId. The order row is written asynchronously by a
+            Kafka consumer. On failure, `code` is one of VOUCHER_NOT_FOUND, STOCK_INSUFFICIENT,
+            ALREADY_PURCHASED.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Result' }
+  /actuator/health:
+    get:
+      summary: Service and dependency health
+      security: []
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: UP }
+components:
+  securitySchemes:
+    accessToken:
+      type: apiKey
+      in: header
+      name: authorization
+      description: JWT access token, sent raw with no `Bearer` prefix.
+  schemas:
+    Result:
+      type: object
+      description: Shared response envelope. Null fields are omitted.
+      properties:
+        success: { type: boolean }
+        data: {}
+        total: { type: integer, format: int64 }
+        code: { type: string, example: VOUCHER_NOT_FOUND }
+        errorMsg: { type: string }
+      required: [success]
+security:
+  - accessToken: []
